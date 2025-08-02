@@ -664,10 +664,10 @@
                 return;
             }
 
-            showStatus('İndirme başlatılıyor... Lütfen bekleyin.', 'info');
+            showStatus('İndirme sitesi açılıyor... Lütfen bekleyin.', 'info');
 
             try {
-                // Gerçek backend'e indirme isteği
+                // Backend'den yönlendirme URL'i al
                 const response = await fetch(`${BACKEND_URL}/api/download`, {
                     method: 'POST',
                     headers: {
@@ -689,21 +689,36 @@
                     throw new Error(data.error || 'İndirme başlatılamadı');
                 }
 
-                // İndirme linkini al ve dosyayı indir
-                const downloadUrl = `${BACKEND_URL}${data.download_url}`;
-                
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.download = data.filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-
-                showStatus('✅ İndirme başarıyla başlatıldı! Dosya indiriliyor...', 'success');
+                // External siteyi yeni sekmede aç
+                if (data.external_url) {
+                    window.open(data.external_url, '_blank');
+                    
+                    showStatus(
+                        `✅ İndirme sitesi açıldı! Yeni sekmede ${getQualityText(selectedQuality)} kalitesinde indirebilirsiniz.`, 
+                        'success'
+                    );
+                } else {
+                    throw new Error('İndirme URL\'i alınamadı');
+                }
 
             } catch (error) {
                 console.error('Download error:', error);
-                showStatus(`İndirme hatası: ${error.message}. Lütfen tekrar deneyin.`, 'error');
+                
+                // Fallback: Direkt external sitelere yönlendir
+                const fallbackUrls = {
+                    'audio': `https://ytmp3.cc/en13/${currentVideoData.id}/`,
+                    'default': `https://www.y2mate.com/youtube/${currentVideoData.id}`
+                };
+                
+                const fallbackUrl = selectedQuality === 'audio' 
+                    ? fallbackUrls.audio 
+                    : fallbackUrls.default;
+                
+                window.open(fallbackUrl, '_blank');
+                showStatus(
+                    `🔗 Alternatif indirme sitesi açıldı! ${getQualityText(selectedQuality)} kalitesinde indirebilirsiniz.`, 
+                    'info'
+                );
             }
         }
 
