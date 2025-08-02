@@ -1,735 +1,111 @@
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Video İndirici</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+@app.route('/api/download', methods=['POST'])
+def download_video():
+    """Video indirme"""
+    try:
+        data = request.get_json()
+        url = data.get('url')
+        quality = data.get('quality', '720p')
+        
+        if not url:
+            return jsonify({"error": "URL gerekli"}), 400
+        
+        video_id = extract_video_id(url)
+        if not video_id:
+            return jsonify({"error": "Geçersiz YouTube URL"}), 400
+        
+        # Basit format seçimi
+        if quality == 'audio':
+            format_selector = 'bestaudio[ext=m4a]/bestaudio'
+            ext = 'mp3'
+        elif quality == 'highest':
+            format_selector = 'best[height<=1080]'
+            ext = 'mp4'
+        elif quality == '1080p':
+            format_selector = 'best[height<=1080]'
+            ext = 'mp4'
+        elif quality == '720p':
+            format_selector = 'best[height<=720]'
+            ext = 'mp4'
+        elif quality == '480p':
+            format_selector = 'best[height<=480]'
+            ext = 'mp4'
+        else:
+            format_selector = 'best[height<=360]'
+            ext = 'mp4'
+        
+        # Dosya adını oluştur
+        safe_title = re.sub(r'[^\w\-_\.]', '_', video_id)
+        temp_filename = f"{safe_title}_{quality}_{int(time.time())}"
+        output_path = os.path.join(TEMP_DIR, f'{temp_filename}.%(ext)s')
+        
+        # yt-dlp ayarları - basitleştirilmiş
+        ydl_opts = {
+            'format': format_selector,
+            'outtmpl': output_path,
+            'quiet': True,
+            'no_warnings': True,
+            'ignoreerrors': True,
         }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #4da6ff 0%, #0080ff 50%, #66b3ff 100%);
-            min-height: 100vh;
-            padding: 20px;
-            color: #333;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-            overflow: hidden;
-            animation: fadeIn 0.8s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .header {
-            background: linear-gradient(135deg, #0080ff 0%, #0066cc 100%);
-            color: white;
-            padding: 40px;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-            animation: rotate 20s linear infinite;
-        }
-
-        @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .header h1 {
-            font-size: 3em;
-            margin-bottom: 15px;
-            font-weight: 700;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-            position: relative;
-            z-index: 1;
-        }
-
-        .header p {
-            font-size: 1.2em;
-            opacity: 0.95;
-            position: relative;
-            z-index: 1;
-        }
-
-        .main-content {
-            padding: 50px;
-        }
-
-        .url-section {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 15px;
-            padding: 40px;
-            margin-bottom: 30px;
-            border: 3px solid #0080ff;
-            transition: all 0.3s ease;
-        }
-
-        .url-section:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 30px rgba(0,128,255,0.2);
-        }
-
-        .input-group {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .url-input {
-            flex: 1;
-            padding: 18px 25px;
-            border: 2px solid #ddd;
-            border-radius: 12px;
-            font-size: 1.1em;
-            transition: all 0.3s ease;
-            background: white;
-        }
-
-        .url-input:focus {
-            outline: none;
-            border-color: #0080ff;
-            box-shadow: 0 0 0 3px rgba(0,128,255,0.1);
-            transform: scale(1.02);
-        }
-
-        .fetch-btn {
-            padding: 18px 35px;
-            background: linear-gradient(135deg, #0080ff, #0066cc);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            font-size: 1.1em;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            min-width: 150px;
-        }
-
-        .fetch-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0,128,255,0.3);
-            background: linear-gradient(135deg, #0066cc, #004d99);
-        }
-
-        .fetch-btn:disabled {
-            background: #bdc3c7;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .video-info {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 30px;
-            border: 2px solid #e9ecef;
-            display: none;
-            animation: slideIn 0.5s ease-out;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(-30px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-
-        .video-preview {
-            display: flex;
-            gap: 25px;
-            align-items: start;
-            margin-bottom: 25px;
-        }
-
-        .video-thumbnail {
-            width: 200px;
-            height: 150px;
-            border-radius: 12px;
-            object-fit: cover;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-        }
-
-        .video-details h3 {
-            font-size: 1.4em;
-            color: #2c3e50;
-            margin-bottom: 10px;
-            line-height: 1.4;
-        }
-
-        .video-meta {
-            color: #7f8c8d;
-            font-size: 0.95em;
-            margin-bottom: 8px;
-        }
-
-        .video-description {
-            color: #555;
-            line-height: 1.6;
-            max-height: 80px;
-            overflow: hidden;
-        }
-
-        .quality-section {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 25px;
-        }
-
-        .quality-title {
-            font-size: 1.3em;
-            color: #2c3e50;
-            margin-bottom: 20px;
-            font-weight: 600;
-        }
-
-        .quality-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-
-        .quality-option {
-            background: white;
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            position: relative;
-        }
-
-        .quality-option:hover {
-            border-color: #0080ff;
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(0,128,255,0.15);
-        }
-
-        .quality-option.selected {
-            border-color: #0080ff;
-            background: #0080ff;
-            color: white;
-        }
-
-        .quality-label {
-            font-size: 1.1em;
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
-
-        .quality-details {
-            font-size: 0.9em;
-            opacity: 0.8;
-        }
-
-        .download-btn {
-            width: 100%;
-            padding: 20px;
-            background: linear-gradient(135deg, #27ae60, #219a52);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            font-size: 1.2em;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            margin-top: 20px;
-        }
-
-        .download-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(39,174,96,0.3);
-            background: linear-gradient(135deg, #219a52, #1e8449);
-        }
-
-        .download-btn:disabled {
-            background: #bdc3c7;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .status-message {
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-            font-weight: 500;
-            display: none;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        .status-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .status-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .status-info {
-            background: #cce7ff;
-            color: #004085;
-            border: 1px solid #99d3ff;
-        }
-
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 30px;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #0080ff;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .features {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-top: 40px;
-        }
-
-        .feature {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            padding: 25px;
-            border-radius: 12px;
-            text-align: center;
-            border: 2px solid #e9ecef;
-            transition: all 0.3s ease;
-        }
-
-        .feature:hover {
-            transform: translateY(-5px);
-            border-color: #0080ff;
-            box-shadow: 0 10px 25px rgba(0,128,255,0.1);
-        }
-
-        .feature-icon {
-            font-size: 2.5em;
-            margin-bottom: 15px;
-        }
-
-        .feature-title {
-            font-size: 1.2em;
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: #2c3e50;
-        }
-
-        .feature-description {
-            color: #7f8c8d;
-            line-height: 1.6;
-        }
-
-        .footer {
-            background: #2c3e50;
-            color: white;
-            text-align: center;
-            padding: 30px;
-            margin-top: 40px;
-        }
-
-        @media (max-width: 768px) {
-            .main-content {
-                padding: 30px 20px;
-            }
-            
-            .header h1 {
-                font-size: 2.2em;
-            }
-            
-            .input-group {
-                flex-direction: column;
-            }
-            
-            .video-preview {
-                flex-direction: column;
-                text-align: center;
-            }
-            
-            .video-thumbnail {
-                align-self: center;
-            }
-
-            .quality-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🎬 YouTube İndirici</h1>
-            <p>YouTube videolarını kolayca indirin - Yüksek kalite, hızlı işlem</p>
-        </div>
-
-        <div class="main-content">
-            <div class="url-section">
-                <div class="input-group">
-                    <input type="text" id="urlInput" class="url-input" 
-                           placeholder="YouTube video linkini buraya yapıştırın..." 
-                           autocomplete="off">
-                    <button id="fetchBtn" class="fetch-btn">📹 Video Bilgisi Al</button>
-                </div>
+        
+        # Ses için özel işlem
+        if quality == 'audio':
+            ydl_opts.update({
+                'format': 'bestaudio',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'prefer_ffmpeg': True,
+            })
+        
+        # Video indir
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Önce info al
+                info = ydl.extract_info(url, download=False)
+                title = info.get('title', 'video')
                 
-                <div id="statusMessage" class="status-message"></div>
+                # Güvenli dosya adı oluştur
+                safe_title = re.sub(r'[^\w\-_\.]', '_', title[:50])
+                final_filename = f"{safe_title}_{quality}.{ext}"
+                final_output = os.path.join(TEMP_DIR, final_filename)
                 
-                <div class="loading" id="loading">
-                    <div class="spinner"></div>
-                    <p>Video bilgileri alınıyor...</p>
-                </div>
-            </div>
-
-            <div id="videoInfo" class="video-info">
-                <div class="video-preview">
-                    <img id="videoThumbnail" class="video-thumbnail" alt="Video Thumbnail">
-                    <div class="video-details">
-                        <h3 id="videoTitle"></h3>
-                        <div class="video-meta">
-                            <div id="videoChannel"></div>
-                            <div id="videoDuration"></div>
-                            <div id="videoViews"></div>
-                        </div>
-                        <div id="videoDescription" class="video-description"></div>
-                    </div>
-                </div>
-
-                <div class="quality-section">
-                    <div class="quality-title">📊 İndirme Kalitesi Seçin:</div>
-                    <div class="quality-grid" id="qualityOptions">
-                        <div class="quality-option" data-quality="highest">
-                            <div class="quality-label">🎯 En Yüksek Kalite</div>
-                            <div class="quality-details">Mevcut en iyi kalite</div>
-                        </div>
-                        <div class="quality-option" data-quality="1080p">
-                            <div class="quality-label">🔥 1080p HD</div>
-                            <div class="quality-details">Full HD kalite</div>
-                        </div>
-                        <div class="quality-option" data-quality="720p">
-                            <div class="quality-label">⚡ 720p HD</div>
-                            <div class="quality-details">HD kalite</div>
-                        </div>
-                        <div class="quality-option" data-quality="480p">
-                            <div class="quality-label">📱 480p</div>
-                            <div class="quality-details">Standart kalite</div>
-                        </div>
-                        <div class="quality-option" data-quality="360p">
-                            <div class="quality-label">💾 360p</div>
-                            <div class="quality-details">Düşük boyut</div>
-                        </div>
-                        <div class="quality-option" data-quality="audio">
-                            <div class="quality-label">🎵 Sadece Ses</div>
-                            <div class="quality-details">MP3 formatında</div>
-                        </div>
-                    </div>
-                </div>
-
-                <button id="downloadBtn" class="download-btn" disabled>
-                    💾 İndirmeyi Başlat
-                </button>
-            </div>
-
-            <div class="features">
-                <div class="feature">
-                    <div class="feature-icon">🚀</div>
-                    <div class="feature-title">Hızlı İndirme</div>
-                    <div class="feature-description">YouTube videolarını saniyeler içinde indirin</div>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🎯</div>
-                    <div class="feature-title">Kalite Seçenekleri</div>
-                    <div class="feature-description">360p'den 4K'ya kadar tüm kaliteler</div>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🎵</div>
-                    <div class="feature-title">Ses İndirme</div>
-                    <div class="feature-description">Sadece ses dosyası olarak MP3 indirin</div>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">📱</div>
-                    <div class="feature-title">Mobil Uyumlu</div>
-                    <div class="feature-description">Tüm cihazlarda mükemmel çalışır</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="footer">
-            <p>&copy; 2025 YouTube İndirici - Ücretsiz ve Güvenli</p>
-        </div>
-    </div>
-
-    <script>
-        let currentVideoData = null;
-        let selectedQuality = null;
-
-        // Event listeners
-        document.getElementById('urlInput').addEventListener('input', validateUrl);
-        document.getElementById('fetchBtn').addEventListener('click', fetchVideoInfo);
-        document.getElementById('downloadBtn').addEventListener('click', downloadVideo);
-
-        // Kalite seçimi
-        document.querySelectorAll('.quality-option').forEach(option => {
-            option.addEventListener('click', function() {
-                document.querySelectorAll('.quality-option').forEach(opt => opt.classList.remove('selected'));
-                this.classList.add('selected');
-                selectedQuality = this.dataset.quality;
-                updateDownloadButton();
-            });
-        });
-
-        // Enter tuşu desteği
-        document.getElementById('urlInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                fetchVideoInfo();
-            }
-        });
-
-        function validateUrl() {
-            const url = document.getElementById('urlInput').value.trim();
-            const fetchBtn = document.getElementById('fetchBtn');
-            
-            if (isValidYouTubeUrl(url)) {
-                fetchBtn.disabled = false;
-                fetchBtn.textContent = '📹 Video Bilgisi Al';
-            } else {
-                fetchBtn.disabled = true;
-                fetchBtn.textContent = '📹 Video Bilgisi Al';
-            }
-        }
-
-        function isValidYouTubeUrl(url) {
-            const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)[a-zA-Z0-9_-]{11}/;
-            return youtubeRegex.test(url);
-        }
-
-        function extractVideoId(url) {
-            const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
-            const match = url.match(regExp);
-            return (match && match[7].length === 11) ? match[7] : null;
-        }
-
-        async function fetchVideoInfo() {
-            const url = document.getElementById('urlInput').value.trim();
-            
-            if (!isValidYouTubeUrl(url)) {
-                showStatus('Geçersiz YouTube linki! Lütfen doğru bir YouTube video linki girin.', 'error');
-                return;
-            }
-
-            const videoId = extractVideoId(url);
-            if (!videoId) {
-                showStatus('Video ID çıkarılamadı! Lütfen geçerli bir YouTube linki girin.', 'error');
-                return;
-            }
-
-            showLoading(true);
-            hideStatus();
-
-            try {
-                // YouTube Data API kullanımı (gerçek uygulamada API key gerekir)
-                // Bu demo için örnek veri gösteriyoruz
-                await simulateApiCall();
-
-                // Demo video verisi
-                currentVideoData = {
-                    id: videoId,
-                    title: "Örnek Video Başlığı - YouTube'dan İndirilen Video",
-                    channel: "Kanal Adı",
-                    duration: "10:30",
-                    views: "1.2M görüntüleme",
-                    thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-                    description: "Bu video YouTube'dan başarıyla analiz edildi. İndirme kalitesini seçerek videoyu indirebilirsiniz."
-                };
-
-                displayVideoInfo();
-                showStatus('Video bilgileri başarıyla alındı! Kalite seçerek indirmeye başlayabilirsiniz.', 'success');
-
-            } catch (error) {
-                showStatus('Video bilgileri alınırken hata oluştu: ' + error.message, 'error');
-                console.error('Fetch error:', error);
-            }
-
-            showLoading(false);
-        }
-
-        function simulateApiCall() {
-            return new Promise((resolve, reject) => {
-                // API çağrısını simüle et
-                setTimeout(() => {
-                    if (Math.random() > 0.1) { // %90 başarı oranı
-                        resolve();
-                    } else {
-                        reject(new Error('API bağlantı hatası'));
-                    }
-                }, 2000);
-            });
-        }
-
-        function displayVideoInfo() {
-            if (!currentVideoData) return;
-
-            document.getElementById('videoThumbnail').src = currentVideoData.thumbnail;
-            document.getElementById('videoTitle').textContent = currentVideoData.title;
-            document.getElementById('videoChannel').textContent = `📺 ${currentVideoData.channel}`;
-            document.getElementById('videoDuration').textContent = `⏱️ ${currentVideoData.duration}`;
-            document.getElementById('videoViews').textContent = `👁️ ${currentVideoData.views}`;
-            document.getElementById('videoDescription').textContent = currentVideoData.description;
-
-            document.getElementById('videoInfo').style.display = 'block';
-            
-            // Kalite seçimini sıfırla
-            document.querySelectorAll('.quality-option').forEach(opt => opt.classList.remove('selected'));
-            selectedQuality = null;
-            updateDownloadButton();
-        }
-
-        function updateDownloadButton() {
-            const downloadBtn = document.getElementById('downloadBtn');
-            downloadBtn.disabled = !selectedQuality;
-            
-            if (selectedQuality) {
-                downloadBtn.textContent = `💾 ${getQualityText(selectedQuality)} İndir`;
-            } else {
-                downloadBtn.textContent = '💾 İndirmeyi Başlat';
-            }
-        }
-
-        function getQualityText(quality) {
-            const qualityTexts = {
-                'highest': 'En Yüksek Kalite',
-                '1080p': '1080p HD',
-                '720p': '720p HD',
-                '480p': '480p',
-                '360p': '360p',
-                'audio': 'MP3 Ses'
-            };
-            return qualityTexts[quality] || quality;
-        }
-
-        async function downloadVideo() {
-            if (!currentVideoData || !selectedQuality) {
-                showStatus('Lütfen önce video bilgilerini alın ve kalite seçin.', 'error');
-                return;
-            }
-
-            showStatus('İndirme başlatılıyor... Bu işlem biraz zaman alabilir.', 'info');
-
-            try {
-                // Gerçek uygulamada burada video indirme API'si çağrılır
-                // Demo için simülasyon yapıyoruz
-                await simulateDownload();
-
-                // Demo indirme linki oluştur
-                const filename = `${currentVideoData.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${selectedQuality}`;
-                const demoUrl = createDemoDownloadUrl(filename);
-
-                // İndirmeyi başlat
-                const a = document.createElement('a');
-                a.href = demoUrl;
-                a.download = `${filename}.${selectedQuality === 'audio' ? 'mp3' : 'mp4'}`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-
-                showStatus('✅ İndirme başarıyla tamamlandı! Dosya indiriliyor...', 'success');
-
-            } catch (error) {
-                showStatus('İndirme sırasında hata oluştu: ' + error.message, 'error');
-                console.error('Download error:', error);
-            }
-        }
-
-        function simulateDownload() {
-            return new Promise((resolve, reject) => {
-                setTimeout(() => {
-                    if (Math.random() > 0.05) { // %95 başarı oranı
-                        resolve();
-                    } else {
-                        reject(new Error('İndirme sunucu hatası'));
-                    }
-                }, 3000);
-            });
-        }
-
-        function createDemoDownloadUrl(filename) {
-            // Demo için boş bir blob oluştur
-            const demoContent = `Bu bir demo dosyasıdır.\nGerçek uygulamada burası YouTube video dosyası olacaktır.\n\nVideo: ${currentVideoData.title}\nKalite: ${selectedQuality}\nDosya: ${filename}`;
-            const blob = new Blob([demoContent], { type: 'text/plain' });
-            return URL.createObjectURL(blob);
-        }
-
-        function showLoading(show) {
-            document.getElementById('loading').style.display = show ? 'block' : 'none';
-            document.getElementById('fetchBtn').disabled = show;
-        }
-
-        function showStatus(message, type) {
-            const statusDiv = document.getElementById('statusMessage');
-            statusDiv.textContent = message;
-            statusDiv.className = `status-message status-${type}`;
-            statusDiv.style.display = 'block';
-
-            // Başarı mesajlarını otomatik gizle
-            if (type === 'success') {
-                setTimeout(() => {
-                    hideStatus();
-                }, 5000);
-            }
-        }
-
-        function hideStatus() {
-            document.getElementById('statusMessage').style.display = 'none';
-        }
-
-        // Sayfa yüklendiğinde URL inputunu fokusla
-        window.addEventListener('load', function() {
-            document.getElementById('urlInput').focus();
-        });
-
-        // Demo amaçlı - gerçek uygulamada kaldırılacak
-        console.log('🎬 YouTube İndirici Demo Sürümü');
-        console.log('⚠️  Bu bir demo uygulamasıdır. Gerçek video indirme için backend API gereklidir.');
-        console.log('📝 Geliştirici: github.com/saramsim');
-    </script>
-</body>
-</html>
+                # Yeni ayarlarla indir
+                ydl_opts['outtmpl'] = final_output
+                ydl.params.update(ydl_opts)
+                ydl.download([url])
+                
+                # İndirilen dosyayı kontrol et
+                if os.path.exists(final_output) and os.path.getsize(final_output) > 1000:
+                    file_size = os.path.getsize(final_output)
+                    
+                    return jsonify({
+                        "success": True,
+                        "message": "Video başarıyla indirildi",
+                        "download_url": f"/api/file/{final_filename}",
+                        "file_size": file_size,
+                        "filename": final_filename
+                    })
+                else:
+                    # Alternatif dosya adlarını kontrol et
+                    for file in os.listdir(TEMP_DIR):
+                        if video_id in file and os.path.getsize(os.path.join(TEMP_DIR, file)) > 1000:
+                            file_size = os.path.getsize(os.path.join(TEMP_DIR, file))
+                            return jsonify({
+                                "success": True,
+                                "message": "Video başarıyla indirildi",
+                                "download_url": f"/api/file/{file}",
+                                "file_size": file_size,
+                                "filename": file
+                            })
+                    
+                    raise Exception("Dosya oluşturulamadı veya çok küçük")
+                        
+        except Exception as download_error:
+            print(f"Download error: {download_error}")
+            raise Exception(f"İndirme hatası: {str(download_error)}")
+        
+    except Exception as e:
+        print(f"General error: {e}")
+        return jsonify({"error": f"İndirme hatası: {str(e)}"}), 500
